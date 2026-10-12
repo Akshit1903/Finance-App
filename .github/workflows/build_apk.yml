@@ -92,14 +92,11 @@ jobs:
           to: ${{ secrets.MAIL_TO }}
           from: ${{ secrets.MAIL_USERNAME }}
 
-      - name: Send APK via Telegram Bot
+      - name: Send APK File to Telegram
         uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_TO }}
           token: ${{ secrets.TELEGRAM_TOKEN }}
           document: build/app/outputs/flutter-apk/app-release.apk
-          caption: |
-            ✅ *Flutter Release APK Ready!*
-
-            📦 Run #${{ github.run_number }}
-            🔗 [View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ github.run_number }})
+          message: |
+            ✅ *Flutter Release APK Built Successfully!*
