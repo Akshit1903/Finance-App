@@ -1,4 +1,4 @@
-name: Build Flutter Release APK & Email
+name: Finance Release APK Build
 
 on:
   workflow_dispatch:
@@ -8,6 +8,8 @@ on:
 jobs:
   build_and_send:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -89,3 +91,15 @@ jobs:
             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           to: ${{ secrets.MAIL_TO }}
           from: ${{ secrets.MAIL_USERNAME }}
+
+      - name: Send APK via Telegram Bot
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          document: build/app/outputs/flutter-apk/app-release.apk
+          caption: |
+            ✅ *Flutter Release APK Ready!*
+
+            📦 Run #${{ github.run_number }}
+            🔗 [View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ github.run_number }})
