@@ -34,6 +34,17 @@ jobs:
           echo "SERVER_CLIENT_ID=${{ secrets.SERVER_CLIENT_ID }}" >> .env
           echo "HOME_SERVER_HOST=${{ secrets.HOME_SERVER_HOST }}" >> .env
 
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+
+      - name: Create key.properties
+        run: |
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" > android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+          echo "storeFile=upload-keystore.jks" >> android/key.properties
+
       - name: Build release APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
