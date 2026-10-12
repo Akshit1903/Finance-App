@@ -53,15 +53,39 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
-      - name: Send APK via Email
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+          tag_name: ${{ github.run_number }}
+          name: "Release Build ${{ github.run_number }}`"
+          body: "Automated Flutter release APK build from GitHub Actions."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Email Notification with Links
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "Flutter Release APK Built Successfully (${{ github.sha }})"
-          body: "Hi! Your Flutter release APK has been built successfully. Find it attached."
+          subject: "Flutter Release APK Ready (Run #${{ github.run_number }})"
+          body: |
+            Hi! Your Flutter release APK has been built and uploaded successfully.
+
+            You can download it from either location below:
+
+            📦 GitHub Release (Permanent):
+            https://github.com/${{ github.repository }}/releases/tag/${{ github.run_number }}
+
+            📥 GitHub Artifacts & Run Logs (Temporary):
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           to: ${{ secrets.MAIL_TO }}
           from: ${{ secrets.MAIL_USERNAME }}
-          attachments: build/app/outputs/flutter-apk/app-release.apk
