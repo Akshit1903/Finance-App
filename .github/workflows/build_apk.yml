@@ -29,6 +29,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Create .env file from GitHub Secrets
+        run: |
+          echo "SERVER_CLIENT_ID=${{ secrets.SERVER_CLIENT_ID }}" >> .env
+          echo "HOME_SERVER_HOST=${{ secrets.HOME_SERVER_HOST }}" >> .env
+
       - name: Build release APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
