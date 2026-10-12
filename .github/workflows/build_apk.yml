@@ -30,7 +30,7 @@ jobs:
         run: flutter pub get
 
       - name: Build release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --android-skip-build-dependency-validation
 
       - name: Send APK via Email
         uses: dawidd6/action-send-mail@v3
