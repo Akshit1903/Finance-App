@@ -26,11 +26,15 @@ class DocumentUploadViewModel extends ChangeNotifier {
     UploadDocument(
         id: 'HDFC', title: 'HDFC Statement', icon: Icons.account_balance),
     UploadDocument(
+        id: 'SBI', title: 'SBI Statement', icon: Icons.account_balance),
+    UploadDocument(
         id: 'SBI_CC', title: 'SBI CC Statement', icon: Icons.credit_card),
     UploadDocument(
-        id: 'HDFC_CC', title: 'HDFC CC Statement', icon: Icons.credit_card),
+        id: 'HSBC_CC_LIVE_PLUS',
+        title: 'HSBC Live+ CC Statement',
+        icon: Icons.credit_card),
     UploadDocument(
-        id: 'SBI', title: 'SBI Statement', icon: Icons.account_balance),
+        id: 'HDFC_CC', title: 'HDFC CC Statement', icon: Icons.credit_card),
     UploadDocument(id: 'PAYSLIP', title: 'Payslip', icon: Icons.receipt_long),
   ];
 
