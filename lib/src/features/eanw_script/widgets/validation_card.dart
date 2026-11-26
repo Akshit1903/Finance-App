@@ -1,11 +1,7 @@
 import 'package:expense_and_net_worth_automation/src/models/validation.dart';
-import 'package:expense_and_net_worth_automation/src/utils/transform_utils.dart';
 import 'package:flutter/material.dart';
 
-/// Renders a single validation comparison with pass/fail styling.
-///
-/// Shows the name, both values with their sources, and a colored
-/// left border indicating pass (green) or fail (red).
+/// Renders a single validation item with pass/fail styling and failure message.
 class ValidationCard extends StatelessWidget {
   final Validation validation;
 
@@ -15,7 +11,6 @@ class ValidationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final passed = validation.passed;
-    final diff = (validation.valueA - validation.valueB).abs();
 
     return Card(
       elevation: 0,
@@ -29,8 +24,8 @@ class ValidationCard extends StatelessWidget {
         ),
       ),
       child: Container(
-        // Colored left border indicator
         decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
           border: Border(
             left: BorderSide(
               color: passed ? Colors.green : Colors.red,
@@ -41,41 +36,32 @@ class ValidationCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Pass/fail icon
               Icon(
                 passed ? Icons.check_circle : Icons.cancel,
                 color: passed ? Colors.green : Colors.red,
-                size: 28,
+                size: 24,
               ),
               const SizedBox(width: 12),
-              // Details
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       validation.name,
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    _buildValueRow(
-                      theme,
-                      validation.sourceA,
-                      TransformUtils.formatMoneyNumber(validation.valueA),
-                    ),
-                    _buildValueRow(
-                      theme,
-                      validation.sourceB,
-                      TransformUtils.formatMoneyNumber(validation.valueB),
-                    ),
-                    if (!passed) ...[
+                    if (!passed &&
+                        validation.failureMessage != null &&
+                        validation.failureMessage!.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
-                        'Difference: ₹${TransformUtils.formatMoneyNumber(diff)} ',
+                        validation.failureMessage!,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.red,
+                          color: Colors.red.shade700,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -86,21 +72,6 @@ class ValidationCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildValueRow(ThemeData theme, String source, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(source, style: theme.textTheme.bodySmall),
-          Text('₹$value',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(fontWeight: FontWeight.w500)),
-        ],
       ),
     );
   }

@@ -12,13 +12,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 /// View for the document upload journey step.
-///
-/// Shows upload cards for each document type with status indicators.
-/// Already-uploaded documents (from journey context) are disabled.
 class DocumentUploadView extends StatefulWidget {
   final JourneyStep step;
-
-  /// When true, renders without its own Scaffold (for embedding in Action tab).
   final bool embedded;
 
   const DocumentUploadView({
@@ -37,11 +32,7 @@ class _DocumentUploadViewState extends State<DocumentUploadView> {
   @override
   void initState() {
     super.initState();
-    final uploadStatus = widget.step.context['isAccountStatementUploaded']
-            as Map<String, dynamic>? ??
-        {};
     _viewModel = DocumentUploadViewModel(
-      isAccountStatementUploaded: uploadStatus,
       journeyProvider: context.read<JourneyProvider>(),
     );
   }
@@ -67,12 +58,13 @@ class _DocumentUploadViewState extends State<DocumentUploadView> {
   }
 
   Widget _buildBody(BuildContext context) {
+    if (_viewModel.isLoadingDocuments && _viewModel.documents.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     return Column(
       children: [
-        // Progress indicator
         if (_viewModel.isLoading) const LinearProgressIndicator(),
-
-        // Error messages
         if (_viewModel.errors.isNotEmpty)
           Container(
             width: double.infinity,
@@ -84,36 +76,36 @@ class _DocumentUploadViewState extends State<DocumentUploadView> {
                   color: Theme.of(context).colorScheme.onErrorContainer),
             ),
           ),
-
-        // Document list
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _viewModel.documents.length + 1, // +1 for button
-            itemBuilder: (context, index) {
-              if (index < _viewModel.documents.length) {
+          child: RefreshIndicator(
+            onRefresh: _viewModel.fetchDocuments,
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _viewModel.documents.length + 1,
+              itemBuilder: (context, index) {
+                if (index < _viewModel.documents.length) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildDocumentCard(
+                        context, _viewModel.documents[index]),
+                  );
+                }
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child:
-                      _buildDocumentCard(context, _viewModel.documents[index]),
-                );
-              }
-              // Upload All button at the bottom
-              return Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: FilledButton.icon(
-                  onPressed:
-                      (!_viewModel.hasSelectedDocuments || _viewModel.isLoading)
-                          ? null
-                          : _viewModel.uploadAllDocuments,
-                  icon: const Icon(Icons.cloud_upload),
-                  label: const Text('Upload All'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  padding: const EdgeInsets.only(top: 16),
+                  child: FilledButton.icon(
+                    onPressed: (!_viewModel.hasSelectedDocuments ||
+                            _viewModel.isLoading)
+                        ? null
+                        : _viewModel.uploadAllDocuments,
+                    icon: const Icon(Icons.cloud_upload),
+                    label: const Text('Upload All'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ],
@@ -121,31 +113,30 @@ class _DocumentUploadViewState extends State<DocumentUploadView> {
   }
 
   Widget _buildDocumentCard(BuildContext context, UploadDocument doc) {
-    final isDisabled = _viewModel.isAlreadyUploaded(doc);
+    final isUploaded = doc.isUploaded;
     final isSelected = doc.uploadStatus == UploadStatus.SELECTED;
     final theme = Theme.of(context);
 
     return Card(
       elevation: 0,
-      color: isDisabled
+      color: isUploaded
           ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.15)
           : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        enabled: !isDisabled,
         leading: Icon(
           doc.icon,
-          color: isDisabled
-              ? theme.colorScheme.outline
+          color: isUploaded
+              ? Colors.green
               : isSelected
-                  ? Colors.green
+                  ? Colors.teal
                   : theme.colorScheme.primary,
         ),
         title: Text(
-          doc.title,
+          doc.name,
           style: TextStyle(
             fontWeight: FontWeight.w500,
-            color: isDisabled ? theme.colorScheme.outline : null,
+            color: isUploaded ? theme.colorScheme.outline : null,
           ),
         ),
         subtitle: Text(
@@ -153,22 +144,28 @@ class _DocumentUploadViewState extends State<DocumentUploadView> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: isDisabled ? theme.colorScheme.outline : null,
+            color: isUploaded ? Colors.green.shade700 : null,
           ),
         ),
-        trailing: doc.uploadStatus.icon,
-        onTap: isDisabled ? null : () => _handleTap(doc),
+        trailing: isUploaded
+            ? IconButton(
+                icon: const Icon(Icons.link),
+                tooltip: 'Copy Drive Link',
+                onPressed: () => _copyDriveLink(doc),
+              )
+            : doc.uploadStatus.icon,
+        onTap: () => _handleTap(doc),
       ),
     );
   }
 
   String _resolveSubtitle(UploadDocument doc) {
-    if (_viewModel.isAlreadyUploaded(doc)) return 'Already uploaded';
+    if (doc.isUploaded) return 'Uploaded';
     switch (doc.uploadStatus) {
       case UploadStatus.NOT_INITIATED:
-        return 'Tap to select file';
+        return 'Pending';
       case UploadStatus.SELECTED:
-        return doc.path!.split(Platform.pathSeparator).last;
+        return doc.path?.split(Platform.pathSeparator).last ?? 'File selected';
       case UploadStatus.QUEUED:
         return 'Queued...';
       case UploadStatus.DECRYPTING:
@@ -180,19 +177,25 @@ class _DocumentUploadViewState extends State<DocumentUploadView> {
       case UploadStatus.SUCCESS:
         return 'Uploaded successfully';
       case UploadStatus.FAILURE:
-        return 'Upload failed — tap to retry';
+        return 'Upload failed';
+    }
+  }
+
+  Future<void> _copyDriveLink(UploadDocument doc) async {
+    final url = TransformUtils.resolveDriveFileUrl(doc.uploadedFileId);
+    await Clipboard.setData(ClipboardData(text: url));
+    if (mounted) {
+      SnackbarService.showSnackBar('Drive link copied to clipboard', context);
     }
   }
 
   void _handleTap(UploadDocument doc) async {
+    if (doc.isUploaded) {
+      await _copyDriveLink(doc);
+      return;
+    }
+
     switch (doc.uploadStatus) {
-      case UploadStatus.SUCCESS:
-        // Copy Drive URL to clipboard
-        final url = TransformUtils.resolveDriveFileUrl(doc.uploadedFileId);
-        await Clipboard.setData(ClipboardData(text: url));
-        if (mounted) {
-          SnackbarService.showSnackBar('Drive URL copied', context);
-        }
       case UploadStatus.NOT_INITIATED || UploadStatus.FAILURE:
         _viewModel.pickDocument(doc);
       case UploadStatus.SELECTED:

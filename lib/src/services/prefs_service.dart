@@ -1,4 +1,3 @@
-import 'package:expense_and_net_worth_automation/src/config/apps_script_type.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PrefsService {
@@ -7,14 +6,14 @@ class PrefsService {
 
   static const String _externalTransactionsKey = 'external_transactions';
   static const String _workingEANWSheetsIdKey = 'working_eanw_sheets_id';
+  static const String _accountsKey = 'accounts';
 
-  Future<String?> getAppsScriptURL(AppsScriptType appsScriptType) async {
-    return _prefs.getString(_getHostKey(appsScriptType));
+  String? getAccounts() {
+    return _prefs.getString(_accountsKey);
   }
 
-  Future<void> setAppsScriptURL(
-      AppsScriptType appsScriptType, String appsScriptURL) async {
-    await _prefs.setString(_getHostKey(appsScriptType), appsScriptURL);
+  Future<void> setAccounts(String jsonStr) async {
+    await _prefs.setString(_accountsKey, jsonStr);
   }
 
   String? getExternalTransactions() {
@@ -39,9 +38,5 @@ class PrefsService {
 
   Future<void> removeWorkingEANWSheetsId() async {
     await _prefs.remove(_workingEANWSheetsIdKey);
-  }
-
-  String _getHostKey(AppsScriptType appsScriptType) {
-    return "${appsScriptType.sheetName}_HOST";
   }
 }

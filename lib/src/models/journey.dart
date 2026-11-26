@@ -1,5 +1,4 @@
 /// Represents the status of a journey step.
-/// [stepStatus] from the API is the single source of truth.
 enum StepStatus {
   completed,
   inProgress,
@@ -23,27 +22,36 @@ enum StepStatus {
 class JourneyStep {
   final String id;
   final String title;
-  final StepStatus stepStatus;
+  StepStatus stepStatus;
+  bool isEvaluating;
   final Map<String, dynamic> context;
 
-  const JourneyStep({
+  JourneyStep({
     required this.id,
     required this.title,
     required this.stepStatus,
-    required this.context,
+    this.isEvaluating = false,
+    this.context = const {},
   });
 
-  factory JourneyStep.fromJson(Map<String, dynamic> json) {
+  JourneyStep copyWith({
+    String? id,
+    String? title,
+    StepStatus? stepStatus,
+    bool? isEvaluating,
+    Map<String, dynamic>? context,
+  }) {
     return JourneyStep(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      stepStatus: StepStatus.fromString(json['stepStatus'] as String),
-      context: json['context'] as Map<String, dynamic>? ?? {},
+      id: id ?? this.id,
+      title: title ?? this.title,
+      stepStatus: stepStatus ?? this.stepStatus,
+      isEvaluating: isEvaluating ?? this.isEvaluating,
+      context: context ?? this.context,
     );
   }
 }
 
-/// Represents the full journey state from GET /finance/journey.
+/// Client-driven journey container holding the standard steps.
 class Journey {
   final List<JourneyStep> steps;
   final bool complete;
@@ -53,18 +61,6 @@ class Journey {
     required this.complete,
   });
 
-  factory Journey.fromJson(Map<String, dynamic> json) {
-    final stepsJson = json['steps'] as List<dynamic>? ?? [];
-    return Journey(
-      steps: stepsJson
-          .map((s) => JourneyStep.fromJson(s as Map<String, dynamic>))
-          .toList(),
-      complete: json['complete'] as bool? ?? false,
-    );
-  }
-
-  /// Returns the first step whose stepStatus is IN_PROGRESS.
-  /// Only one step is guaranteed to be in-progress at a time.
   JourneyStep? get inProgressStep {
     try {
       return steps.firstWhere((s) => s.stepStatus == StepStatus.inProgress);

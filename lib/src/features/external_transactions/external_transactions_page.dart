@@ -1,6 +1,8 @@
+import 'package:expense_and_net_worth_automation/src/config/dependency_injection.dart';
 import 'package:expense_and_net_worth_automation/src/features/external_transactions/external_transactions_view_model.dart';
 import 'package:expense_and_net_worth_automation/src/features/external_transactions/transaction_form_page.dart';
 import 'package:expense_and_net_worth_automation/src/models/transaction.dart';
+import 'package:expense_and_net_worth_automation/src/services/accounts_repository.dart';
 import 'package:expense_and_net_worth_automation/src/utils/snackbar_service.dart';
 import 'package:flutter/material.dart';
 
@@ -16,6 +18,7 @@ class ExternalTransactionsPage extends StatefulWidget {
 
 class _ExternalTransactionsPageState extends State<ExternalTransactionsPage> {
   late final ExternalTransactionsViewModel _viewModel;
+  final AccountsRepository _accountsRepository = getIt<AccountsRepository>();
 
   @override
   void initState() {
@@ -71,14 +74,14 @@ class _ExternalTransactionsPageState extends State<ExternalTransactionsPage> {
             onPressed: () async {
               try {
                 await _viewModel.refreshFromApi();
-                if (mounted) {
-                  SnackbarService.showSnackBar(
-                      'Refreshed from server successfully!', context);
-                }
+                if (!context.mounted) return;
+                SnackbarService.showSnackBar(
+                  'Refreshed from server successfully!',
+                  context,
+                );
               } catch (e) {
-                if (mounted) {
-                  SnackbarService.showSnackBar('Refresh failed: $e', context);
-                }
+                if (!context.mounted) return;
+                SnackbarService.showSnackBar('Refresh failed: $e', context);
               }
             },
           )
@@ -132,10 +135,9 @@ class _ExternalTransactionsPageState extends State<ExternalTransactionsPage> {
                                 try {
                                   await _viewModel.refreshFromApi();
                                 } catch (e) {
-                                  if (mounted) {
-                                    SnackbarService.showSnackBar(
-                                        'Fetch failed: $e', context);
-                                  }
+                                  if (!context.mounted) return;
+                                  SnackbarService.showSnackBar(
+                                      'Fetch failed: $e', context);
                                 }
                               },
                               icon: const Icon(Icons.download),
@@ -150,6 +152,8 @@ class _ExternalTransactionsPageState extends State<ExternalTransactionsPage> {
                         itemBuilder: (context, index) {
                           final tx = _viewModel.transactions[index];
                           final isCr = tx.drcr == 'CR';
+                          final accountName = _accountsRepository
+                              .getAccountName(tx.accountId);
 
                           return Card(
                             elevation: 0,
@@ -181,7 +185,9 @@ class _ExternalTransactionsPageState extends State<ExternalTransactionsPage> {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      tx.category,
+                                      tx.name.isNotEmpty
+                                          ? tx.name
+                                          : (tx.category ?? 'Transaction'),
                                       style: const TextStyle(
                                           fontWeight: FontWeight.bold),
                                     ),
@@ -209,7 +215,7 @@ class _ExternalTransactionsPageState extends State<ExternalTransactionsPage> {
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
-                                        tx.account,
+                                        accountName,
                                         style: TextStyle(
                                           fontSize: 12,
                                           color: theme
@@ -217,6 +223,18 @@ class _ExternalTransactionsPageState extends State<ExternalTransactionsPage> {
                                         ),
                                       ),
                                     ),
+                                    if (tx.category != null &&
+                                        tx.category!.isNotEmpty &&
+                                        tx.category != tx.name) ...[
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        tx.category!,
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
+                                          color: theme.colorScheme.outline,
+                                        ),
+                                      ),
+                                    ],
                                     if (tx.tags != null &&
                                         tx.tags!.isNotEmpty) ...[
                                       const SizedBox(width: 8),
@@ -237,10 +255,9 @@ class _ExternalTransactionsPageState extends State<ExternalTransactionsPage> {
                                     .withValues(alpha: 0.7),
                                 onPressed: () async {
                                   await _viewModel.deleteTransaction(index);
-                                  if (mounted) {
-                                    SnackbarService.showSnackBar(
-                                        'Transaction deleted', context);
-                                  }
+                                  if (!context.mounted) return;
+                                  SnackbarService.showSnackBar(
+                                      'Transaction deleted', context);
                                 },
                               ),
                               onTap: () => _addOrEditTransaction(

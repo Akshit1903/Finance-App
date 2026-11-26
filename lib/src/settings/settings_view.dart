@@ -1,5 +1,4 @@
 import 'package:expense_and_net_worth_automation/src/settings/snackbar_history.dart';
-import 'package:expense_and_net_worth_automation/src/settings/vars_config.dart';
 import 'package:flutter/material.dart';
 
 import 'settings_controller.dart';
@@ -23,16 +22,10 @@ class SettingsView extends StatelessWidget {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        // Glue the SettingsController to the theme selection DropdownButton.
-        //
-        // When a user selects a theme from the dropdown list, the
-        // SettingsController is updated, which rebuilds the MaterialApp.
         child: Column(
           children: [
             DropdownButton<ThemeMode>(
-              // Read the selected themeMode from the controller
               value: controller.themeMode,
-              // Call the updateThemeMode method any time the user selects a theme.
               onChanged: controller.updateThemeMode,
               items: const [
                 DropdownMenuItem(
@@ -49,10 +42,8 @@ class SettingsView extends StatelessWidget {
                 )
               ],
             ),
-            SizedBox(height: 24),
-            VarsConfig(),
-            SizedBox(height: 24),
-            SnackbarHistory(),
+            const SizedBox(height: 24),
+            const SnackbarHistory(),
           ],
         ),
       ),

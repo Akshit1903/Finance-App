@@ -1,83 +1,28 @@
-import 'package:expense_and_net_worth_automation/src/clients/eanw_apps_scripts_client.dart';
-import 'package:expense_and_net_worth_automation/src/config/dependency_injection.dart';
-import 'package:expense_and_net_worth_automation/src/services/prefs_service.dart';
+import 'package:expense_and_net_worth_automation/src/features/eanw_script/eanw_script_viewmodel.dart';
+import 'package:expense_and_net_worth_automation/src/providers/journey_provider.dart';
+import 'package:expense_and_net_worth_automation/src/utils/snackbar_service.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-/// Submit section that runs two parallel operations with loading indicators.
-///
-/// Executes copyEANWToMainSheet and overwriteNetWorthAndUpdateEANWFinanceLog
-/// in parallel, showing a loading/complete indicator for each.
-class SubmitSection extends StatefulWidget {
-  /// Whether the submit button should be enabled (all validations passed).
-  final bool isEnabled;
-
-  /// Called after both operations complete successfully.
-  final VoidCallback onSubmitComplete;
+/// Section providing Evaluate EANW and Commit EANW actions.
+class SubmitSection extends StatelessWidget {
+  final EanwScriptViewModel viewModel;
 
   const SubmitSection({
     super.key,
-    required this.isEnabled,
-    required this.onSubmitComplete,
+    required this.viewModel,
   });
-
-  @override
-  State<SubmitSection> createState() => _SubmitSectionState();
-}
-
-class _SubmitSectionState extends State<SubmitSection> {
-  final EanwAppsScriptsClient _client = getIt<EanwAppsScriptsClient>();
-  final PrefsService _prefsService = getIt<PrefsService>();
-
-  bool _isSubmitting = false;
-  bool _copyComplete = false;
-  bool _financeLogComplete = false;
-  String? _error;
-
-  Future<void> _handleSubmit() async {
-    final workingEANWSheetsId = _prefsService.getWorkingEANWSheetsId() ?? '';
-    if (workingEANWSheetsId.isEmpty) {
-      setState(() =>
-          _error = 'Working EANW Spreadsheet ID not found in preferences.');
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = true;
-      _copyComplete = false;
-      _financeLogComplete = false;
-      _error = null;
-    });
-
-    try {
-      await _client.copyEANWToMainSheet(workingEANWSheetsId).then((result) {
-        if (!result.isSuccess) throw result.errorMessage ?? 'Copy failed';
-        setState(() => _copyComplete = true);
-      });
-      await _client.overwriteNetWorthAndUpdateEANWFinanceLog().then((result) {
-        if (!result.isSuccess) throw result.errorMessage ?? 'Update failed';
-        setState(() => _financeLogComplete = true);
-      });
-      // Both succeeded → clear sheet ID from preferences
-      await _prefsService.removeWorkingEANWSheetsId();
-
-      // Both succeeded → notify parent
-      widget.onSubmitComplete();
-    } catch (e) {
-      setState(() => _error = e.toString());
-    } finally {
-      setState(() => _isSubmitting = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasSheet = viewModel.hasWorkingSheet;
+    final allPassed = viewModel.allValidationsPassed;
 
     return Card(
       elevation: 0,
-      margin: const EdgeInsets.symmetric(vertical: 8),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
       child: Padding(
@@ -85,89 +30,116 @@ class _SubmitSectionState extends State<SubmitSection> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Commit Expenses and Net Worth ',
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 16),
-
-            // Operation status rows (shown during/after submission)
-            if (_isSubmitting || _copyComplete || _financeLogComplete) ...[
-              _OperationRow(
-                title: 'Copying to Main Sheet',
-                isComplete: _copyComplete,
-                isInProgress: _isSubmitting && !_copyComplete,
+            Text(
+              'Actions & Commit',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(height: 8),
-              _OperationRow(
-                title: 'Overwriting Net Worth and Updating Finance Log',
-                isComplete: _financeLogComplete,
-                isInProgress: _isSubmitting && !_financeLogComplete,
-              ),
-              const SizedBox(height: 16),
-            ],
+            ),
+            const SizedBox(height: 12),
 
-            // Error display
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(_error!,
-                    style: TextStyle(color: theme.colorScheme.error)),
+            // Evaluate EANW button
+            FilledButton.tonalIcon(
+              onPressed: (!hasSheet ||
+                      viewModel.isEvaluatingEanw ||
+                      viewModel.isLoadingValidations ||
+                      viewModel.isCommitting)
+                  ? null
+                  : () async {
+                      try {
+                        await viewModel.evaluateEanw();
+                        if (context.mounted) {
+                          SnackbarService.showSnackBar(
+                            'Evaluation complete! Validations updated.',
+                            context,
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          SnackbarService.showSnackBar(
+                            'Evaluation failed: $e',
+                            context,
+                          );
+                        }
+                      }
+                    },
+              icon: viewModel.isEvaluatingEanw
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              label: Text(
+                viewModel.isEvaluatingEanw
+                    ? 'Evaluating EANW...'
+                    : 'Evaluate EANW',
               ),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
 
-            // Submit button
+            const SizedBox(height: 12),
+
+            // Commit button
             FilledButton.icon(
-              onPressed:
-                  (widget.isEnabled && !_isSubmitting) ? _handleSubmit : null,
-              icon: const Icon(Icons.publish),
-              label: Text(_isSubmitting ? 'Submitting...' : 'Submit'),
+              onPressed: viewModel.canCommit
+                  ? () async {
+                      try {
+                        await viewModel.commitEanw(() {
+                          if (context.mounted) {
+                            SnackbarService.showSnackBar(
+                              'EANW committed successfully!',
+                              context,
+                            );
+                            // Evaluate the journey after commit
+                            context.read<JourneyProvider>().evaluateJourney();
+                          }
+                        });
+                      } catch (e) {
+                        if (context.mounted) {
+                          SnackbarService.showSnackBar(
+                            'Commit failed: $e',
+                            context,
+                          );
+                        }
+                      }
+                    }
+                  : null,
+              icon: viewModel.isCommitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.check_circle_outline),
+              label: Text(
+                viewModel.isCommitting ? 'Committing...' : 'Commit EANW',
+              ),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor:
+                    allPassed ? Colors.green.shade700 : null,
               ),
             ),
+
+            if (!allPassed && hasSheet)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Commit is blocked until all validations pass.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// A single row showing an operation's loading/complete state.
-class _OperationRow extends StatelessWidget {
-  final String title;
-  final bool isComplete;
-  final bool isInProgress;
-
-  const _OperationRow({
-    required this.title,
-    required this.isComplete,
-    required this.isInProgress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: Row(
-        key: ValueKey('$title-$isComplete'),
-        children: [
-          if (isInProgress)
-            const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else if (isComplete)
-            const Icon(Icons.check_circle, color: Colors.green, size: 20)
-          else
-            const Icon(Icons.circle_outlined, color: Colors.grey, size: 20),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              title,
-              softWrap: true,
-            ),
-          ),
-        ],
       ),
     );
   }

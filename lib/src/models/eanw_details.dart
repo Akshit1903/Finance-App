@@ -1,4 +1,12 @@
+import 'package:expense_and_net_worth_automation/src/models/finance_log.dart';
 import 'package:expense_and_net_worth_automation/src/utils/transform_utils.dart';
+
+Map<String, dynamic> _safeMap(dynamic val) {
+  if (val is Map) {
+    return val.map((k, v) => MapEntry(k.toString(), v));
+  }
+  return <String, dynamic>{};
+}
 
 /// A single financial section (e.g., income, recurring_expenses).
 /// Contains a total and a split of named categories.
@@ -8,12 +16,17 @@ class EanwSection {
 
   const EanwSection({required this.total, required this.split});
 
-  factory EanwSection.fromJson(Map<String, dynamic> json) {
-    final splitRaw = json['split'] as Map<String, dynamic>? ?? {};
-    final sortedMap = Map.fromEntries(splitRaw.entries.toList()
-      ..sort((a, b) => double.parse(b.value).compareTo(double.parse(a.value))));
+  factory EanwSection.fromJson(dynamic json) {
+    final map = _safeMap(json);
+    final splitMap = _safeMap(map['split']);
+    final sortedMap = Map.fromEntries(splitMap.entries.toList()
+      ..sort((a, b) {
+        final aVal = double.tryParse(a.value.toString().replaceAll(',', '')) ?? 0.0;
+        final bVal = double.tryParse(b.value.toString().replaceAll(',', '')) ?? 0.0;
+        return bVal.compareTo(aVal);
+      }));
     return EanwSection(
-      total: TransformUtils.formatMoneyString(json['total']?.toString() ?? '0',
+      total: TransformUtils.formatMoneyString(map['total']?.toString() ?? '0',
           decimalDigits: 0),
       split: sortedMap.map((k, v) => MapEntry(
           k, TransformUtils.formatMoneyString(v.toString(), decimalDigits: 0))),
@@ -41,23 +54,19 @@ class EanwDetails {
     required this.totalExpenses,
   });
 
-  factory EanwDetails.fromJson(Map<String, dynamic> json) {
+  factory EanwDetails.fromJson(dynamic json) {
+    final map = _safeMap(json);
     return EanwDetails(
-      income:
-          EanwSection.fromJson(json['income'] as Map<String, dynamic>? ?? {}),
-      recurringExpenses: EanwSection.fromJson(
-          json['recurring_expenses'] as Map<String, dynamic>? ?? {}),
-      netWorth: EanwSection.fromJson(
-          json['net_worth'] as Map<String, dynamic>? ?? {}),
-      oneTimeExpenses: EanwSection.fromJson(
-          json['one_time_expenses'] as Map<String, dynamic>? ?? {}),
-      investment: EanwSection.fromJson(
-          json['investment'] as Map<String, dynamic>? ?? {}),
+      income: EanwSection.fromJson(map['income']),
+      recurringExpenses: EanwSection.fromJson(map['recurring_expenses']),
+      netWorth: EanwSection.fromJson(map['net_worth']),
+      oneTimeExpenses: EanwSection.fromJson(map['one_time_expenses']),
+      investment: EanwSection.fromJson(map['investment']),
       growth: TransformUtils.formatMoneyString(
-          json['growth']?.toString() ?? '0',
+          map['growth']?.toString() ?? '0',
           decimalDigits: 0),
       totalExpenses: TransformUtils.formatMoneyString(
-          json['total_expenses']?.toString() ?? '0',
+          map['total_expenses']?.toString() ?? '0',
           decimalDigits: 0),
     );
   }
@@ -70,4 +79,54 @@ class EanwDetails {
         MapEntry('Income', income),
         MapEntry('Net Worth', netWorth),
       ];
+}
+
+/// Response from GET finance/scripts/eanw/working
+class WorkingEanwResponse {
+  final String? workingEANWSheetsId;
+  final EanwDetails? workingEANWSheet;
+
+  const WorkingEanwResponse({
+    this.workingEANWSheetsId,
+    this.workingEANWSheet,
+  });
+
+  factory WorkingEanwResponse.fromJson(dynamic json) {
+    final map = _safeMap(json);
+    return WorkingEanwResponse(
+      workingEANWSheetsId: map['workingEANWSheetsId'] as String?,
+      workingEANWSheet: map['workingEANWSheet'] != null
+          ? EanwDetails.fromJson(map['workingEANWSheet'])
+          : null,
+    );
+  }
+
+  bool get hasWorkingSheet =>
+      workingEANWSheetsId != null && workingEANWSheetsId!.isNotEmpty;
+}
+
+/// Response from GET finance/scripts/eanw/completion
+class CompletionEanwResponse {
+  final bool stepCompleted;
+  final EanwDetails? mainEANWSheet;
+  final FinanceLog? financeLog;
+
+  const CompletionEanwResponse({
+    required this.stepCompleted,
+    this.mainEANWSheet,
+    this.financeLog,
+  });
+
+  factory CompletionEanwResponse.fromJson(dynamic json) {
+    final map = _safeMap(json);
+    return CompletionEanwResponse(
+      stepCompleted: map['stepCompleted'] as bool? ?? false,
+      mainEANWSheet: map['mainEANWSheet'] != null
+          ? EanwDetails.fromJson(map['mainEANWSheet'])
+          : null,
+      financeLog: map['financeLog'] != null
+          ? FinanceLog.fromJson(map['financeLog'])
+          : null,
+    );
+  }
 }

@@ -1,4 +1,8 @@
+import 'package:expense_and_net_worth_automation/src/config/dependency_injection.dart';
+import 'package:expense_and_net_worth_automation/src/models/account.dart';
 import 'package:expense_and_net_worth_automation/src/models/transaction.dart';
+import 'package:expense_and_net_worth_automation/src/services/accounts_repository.dart';
+import 'package:expense_and_net_worth_automation/src/utils/snackbar_service.dart';
 import 'package:flutter/material.dart';
 
 class TransactionFormPage extends StatefulWidget {
@@ -17,31 +21,42 @@ class TransactionFormPage extends StatefulWidget {
 
 class _TransactionFormPageState extends State<TransactionFormPage> {
   final _formKey = GlobalKey<FormState>();
+  final AccountsRepository _accountsRepository = getIt<AccountsRepository>();
 
+  late final TextEditingController _nameController;
   late final TextEditingController _amountController;
-  late final TextEditingController _accountController;
   late final TextEditingController _categoryController;
   late final TextEditingController _tagsController;
+
+  String? _selectedAccountId;
   late bool _expense;
+  late bool _income;
   late String _drcr;
+  late List<Account> _accounts;
 
   @override
   void initState() {
     super.initState();
     final tx = widget.transaction;
+    _accounts = _accountsRepository.accounts;
+
+    _nameController = TextEditingController(text: tx?.name ?? '');
     _amountController =
-        TextEditingController(text: tx?.amount.toString() ?? '');
-    _accountController = TextEditingController(text: tx?.account ?? '');
+        TextEditingController(text: tx != null ? tx.amount.toString() : '');
     _categoryController = TextEditingController(text: tx?.category ?? '');
     _tagsController = TextEditingController(text: tx?.tags ?? '');
+    _selectedAccountId = tx?.accountId.isNotEmpty == true
+        ? tx!.accountId
+        : (_accounts.isNotEmpty ? _accounts.first.accountId : null);
     _expense = tx?.expense ?? true;
+    _income = tx?.income ?? false;
     _drcr = tx?.drcr ?? 'DR';
   }
 
   @override
   void dispose() {
+    _nameController.dispose();
     _amountController.dispose();
-    _accountController.dispose();
     _categoryController.dispose();
     _tagsController.dispose();
     super.dispose();
@@ -49,16 +64,24 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
 
   void _saveForm() {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedAccountId == null || _selectedAccountId!.isEmpty) {
+      SnackbarService.showSnackBar('Please select an account', context);
+      return;
+    }
 
     final double amount = double.tryParse(_amountController.text) ?? 0.0;
     final transaction = Transaction(
+      name: _nameController.text.trim(),
       amount: amount,
-      account: _accountController.text.trim(),
-      category: _categoryController.text.trim(),
+      accountId: _selectedAccountId!,
+      category: _categoryController.text.trim().isEmpty
+          ? null
+          : _categoryController.text.trim(),
       tags: _tagsController.text.trim().isEmpty
           ? null
           : _tagsController.text.trim(),
       expense: _expense,
+      income: _income,
       drcr: _drcr,
     );
 
@@ -93,11 +116,27 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                 color: theme.colorScheme.surfaceContainerHighest
                     .withValues(alpha: 0.3),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
+                      TextFormField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Name',
+                          prefixIcon: Icon(Icons.title),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter a name';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
                       TextFormField(
                         controller: _amountController,
                         decoration: const InputDecoration(
@@ -118,20 +157,36 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _accountController,
+
+                      // Account Dropdown Menu
+                      DropdownButtonFormField<String>(
+                        initialValue: _accounts.any((a) => a.accountId == _selectedAccountId)
+                            ? _selectedAccountId
+                            : null,
                         decoration: const InputDecoration(
                           labelText: 'Account',
                           prefixIcon: Icon(Icons.account_balance_wallet),
                           border: OutlineInputBorder(),
                         ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter an account';
+                        items: _accounts.map((account) {
+                          return DropdownMenuItem<String>(
+                            value: account.accountId,
+                            child: Text(account.accountName),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedAccountId = val;
+                          });
+                        },
+                        validator: (val) {
+                          if (val == null || val.isEmpty) {
+                            return 'Please select an account';
                           }
                           return null;
                         },
                       ),
+
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _categoryController,
@@ -140,12 +195,6 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                           prefixIcon: Icon(Icons.category),
                           border: OutlineInputBorder(),
                         ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter a category';
-                          }
-                          return null;
-                        },
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -166,7 +215,8 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                 color: theme.colorScheme.surfaceContainerHighest
                     .withValues(alpha: 0.3),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16.0, vertical: 8.0),
@@ -189,8 +239,8 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                           if (value != null) {
                             setState(() {
                               _drcr = value;
-                              // If CR, it is usually income (not expense), if DR it is usually expense
                               _expense = (value == 'DR');
+                              _income = (value == 'CR');
                             });
                           }
                         },
@@ -202,6 +252,16 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                         onChanged: (bool value) {
                           setState(() {
                             _expense = value;
+                          });
+                        },
+                      ),
+                      const Divider(),
+                      SwitchListTile(
+                        title: const Text('Is Income?'),
+                        value: _income,
+                        onChanged: (bool value) {
+                          setState(() {
+                            _income = value;
                           });
                         },
                       ),
@@ -217,7 +277,8 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],

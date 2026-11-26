@@ -12,15 +12,20 @@ class FinanceLogGroup {
     entries.sort((a, b) {
       final aVal = double.tryParse(a.value);
       final bVal = double.tryParse(b.value);
-      // Both numeric → sort descending
       if (aVal != null && bVal != null) return bVal.compareTo(aVal);
-      // Non-numeric values go to bottom
       if (aVal == null && bVal != null) return 1;
       if (aVal != null && bVal == null) return -1;
       return a.key.compareTo(b.key);
     });
     return entries;
   }
+}
+
+Map<String, dynamic> _safeLogMap(dynamic val) {
+  if (val is Map) {
+    return val.map((k, v) => MapEntry(k.toString(), v));
+  }
+  return <String, dynamic>{};
 }
 
 /// Finance log with period-based categories.
@@ -35,19 +40,19 @@ class FinanceLog {
     required this.year,
   });
 
-  factory FinanceLog.fromJson(Map<String, dynamic> json) {
+  factory FinanceLog.fromJson(dynamic json) {
+    final map = _safeLogMap(json);
     return FinanceLog(
-      month: _parseGroups(json['month'] as Map<String, dynamic>? ?? {}),
-      quarter: _parseGroups(json['quarter'] as Map<String, dynamic>? ?? {}),
-      year: _parseGroups(json['year'] as Map<String, dynamic>? ?? {}),
+      month: _parseGroups(map['month']),
+      quarter: _parseGroups(map['quarter']),
+      year: _parseGroups(map['year']),
     );
   }
 
-  /// Parses a period map like { "[M] Net Worth": { "Coin": "123" } }
-  /// into a list of FinanceLogGroup.
-  static List<FinanceLogGroup> _parseGroups(Map<String, dynamic> periodJson) {
-    return periodJson.entries.map((entry) {
-      final metricsRaw = entry.value as Map<String, dynamic>? ?? {};
+  static List<FinanceLogGroup> _parseGroups(dynamic periodJson) {
+    final map = _safeLogMap(periodJson);
+    return map.entries.map((entry) {
+      final metricsRaw = _safeLogMap(entry.value);
       return FinanceLogGroup(
         name: entry.key,
         metrics: metricsRaw.map((k, v) => MapEntry(k, v.toString())),

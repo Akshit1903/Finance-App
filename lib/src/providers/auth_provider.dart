@@ -8,7 +8,7 @@ class AuthProvider extends ChangeNotifier {
   final AuthService _authService;
 
   bool _isSigningIn = false;
-  bool? _isAuthenticated = null;
+  bool? _isAuthenticated;
 
   late final StreamSubscription _userChangedSubscription;
 

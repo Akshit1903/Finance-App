@@ -1,94 +1,92 @@
-import 'package:expense_and_net_worth_automation/src/clients/config_state_apps_scripts_client.dart';
 import 'package:expense_and_net_worth_automation/src/clients/google_workspace_client.dart';
+import 'package:expense_and_net_worth_automation/src/clients/home_server_client.dart';
 import 'package:expense_and_net_worth_automation/src/config/dependency_injection.dart';
 import 'package:expense_and_net_worth_automation/src/models/document_upload.dart';
 import 'package:expense_and_net_worth_automation/src/providers/journey_provider.dart';
 import 'package:expense_and_net_worth_automation/src/utils/pdf_service.dart';
+import 'package:expense_and_net_worth_automation/src/utils/snackbar_service.dart';
 import 'package:expense_and_net_worth_automation/src/utils/upload_status.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-/// ViewModel for the document upload step.
-///
-/// Manages the list of documents, upload logic, and progress state.
-/// Documents that are already uploaded (from journey context) are
-/// marked as SUCCESS and non-interactable.
+/// ViewModel for Document Upload step.
+/// Fetches statuses from GET finance/documents.
 class DocumentUploadViewModel extends ChangeNotifier {
   final JourneyProvider _journeyProvider;
+  final HomeServerClient _homeServerClient = getIt<HomeServerClient>();
   final GoogleWorkspaceClient _workspaceClient = getIt<GoogleWorkspaceClient>();
-  final ConfigStateAppsScriptsClient _configClient =
-      getIt<ConfigStateAppsScriptsClient>();
 
-  /// Error messages collected during uploads.
+  bool _isDisposed = false;
+  bool get isDisposed => _isDisposed;
+
+  List<UploadDocument> documents = [];
+  bool isLoadingDocuments = false;
   final List<String> errors = [];
 
-  final List<UploadDocument> documents = [
-    UploadDocument(
-        id: 'HDFC', title: 'HDFC Statement', icon: Icons.account_balance),
-    UploadDocument(
-        id: 'SBI', title: 'SBI Statement', icon: Icons.account_balance),
-    UploadDocument(
-        id: 'SBI_CC', title: 'SBI CC Statement', icon: Icons.credit_card),
-    UploadDocument(
-        id: 'HSBC_CC_LIVE_PLUS',
-        title: 'HSBC Live+ CC Statement',
-        icon: Icons.credit_card),
-    UploadDocument(
-        id: 'HDFC_CC', title: 'HDFC CC Statement', icon: Icons.credit_card),
-    UploadDocument(id: 'PAYSLIP', title: 'Payslip', icon: Icons.receipt_long),
-  ];
-
   DocumentUploadViewModel({
-    required Map<String, dynamic> isAccountStatementUploaded,
     required JourneyProvider journeyProvider,
   }) : _journeyProvider = journeyProvider {
-    // Mark already-uploaded documents as non-interactable
-    for (final doc in documents) {
-      if (isAccountStatementUploaded[doc.id] == true) {
-        doc.uploadStatus = UploadStatus.SUCCESS;
+    fetchDocuments();
+  }
+
+  Future<void> fetchDocuments() async {
+    isLoadingDocuments = true;
+    notifyListeners();
+
+    try {
+      final response = await _homeServerClient.getDocuments();
+      if (_isDisposed) return;
+      documents = response.documents;
+    } catch (e) {
+      if (_isDisposed) return;
+      errors.add('Failed to load documents: $e');
+    } finally {
+      if (!_isDisposed) {
+        isLoadingDocuments = false;
+        notifyListeners();
       }
     }
   }
 
-  /// Whether the document was already uploaded before this session.
-  bool isAlreadyUploaded(UploadDocument doc) {
-    return doc.uploadStatus == UploadStatus.SUCCESS && doc.path == null;
-  }
+  bool isAlreadyUploaded(UploadDocument doc) => doc.isUploaded;
 
-  /// Whether any document is currently being uploaded.
-  bool get isLoading => documents.any((d) =>
-      d.uploadStatus == UploadStatus.QUEUED ||
-      d.uploadStatus == UploadStatus.DECRYPTING ||
-      d.uploadStatus == UploadStatus.RESOLVE_FOLDER_ID ||
-      d.uploadStatus == UploadStatus.UPLOADING);
+  bool get isLoading =>
+      isLoadingDocuments ||
+      documents.any((d) =>
+          d.uploadStatus == UploadStatus.QUEUED ||
+          d.uploadStatus == UploadStatus.DECRYPTING ||
+          d.uploadStatus == UploadStatus.RESOLVE_FOLDER_ID ||
+          d.uploadStatus == UploadStatus.UPLOADING);
 
-  /// Whether any document has been selected for upload.
   bool get hasSelectedDocuments =>
       documents.any((d) => d.uploadStatus == UploadStatus.SELECTED);
 
-  /// Opens file picker for a specific document.
   Future<void> pickDocument(UploadDocument doc) async {
+    if (!doc.isPending) return;
+
     final result = await FilePicker.platform.pickFiles(
       type: FileType.any,
       allowMultiple: false,
     );
-    if (result == null) return;
-    doc.path = result.files.single.path;
-    doc.uploadStatus = UploadStatus.SELECTED;
-    notifyListeners();
+    if (_isDisposed || result == null || result.files.isEmpty) return;
+
+    final pickedPath = result.files.single.path;
+    if (pickedPath != null) {
+      doc.path = pickedPath;
+      doc.uploadStatus = UploadStatus.SELECTED;
+      notifyListeners();
+    }
   }
 
-  /// Deselects a previously selected document.
   void deselectDocument(UploadDocument doc) {
     doc.reset();
     notifyListeners();
   }
 
-  /// Uploads all selected documents in parallel.
+  /// Uploads all selected documents in parallel to Google Drive.
   Future<void> uploadAllDocuments() async {
     errors.clear();
 
-    // Queue all selected documents
     for (final doc in documents) {
       if (doc.uploadStatus == UploadStatus.SELECTED) {
         doc.uploadStatus = UploadStatus.QUEUED;
@@ -96,7 +94,6 @@ class DocumentUploadViewModel extends ChangeNotifier {
     }
     notifyListeners();
 
-    // Upload in parallel
     final futures = documents
         .where((d) => d.uploadStatus == UploadStatus.QUEUED)
         .map((d) => _uploadSingleDocument(d))
@@ -104,82 +101,101 @@ class DocumentUploadViewModel extends ChangeNotifier {
 
     await Future.wait(futures);
 
-    await _journeyProvider.fetchJourney();
+    // Evaluate the journey after uploads complete
+    await _journeyProvider.evaluateJourney();
+    if (_isDisposed) return;
     notifyListeners();
   }
 
-  /// Handles the full upload pipeline for a single document:
-  /// DECRYPT → RESOLVE_FOLDER_ID → UPLOAD
   Future<void> _uploadSingleDocument(UploadDocument doc) async {
     try {
-      // Step 1: Decrypt if needed (zip or encrypted PDF)
+      // Step 1: Decryption if needed
       doc.uploadStatus = UploadStatus.DECRYPTING;
       notifyListeners();
       await _handleDecryption(doc);
+      if (_isDisposed) return;
 
-      // Step 2: Resolve the Drive folder ID
+      // Step 2: Drive folder resolution
       doc.uploadStatus = UploadStatus.RESOLVE_FOLDER_ID;
       notifyListeners();
-      final folderResult = await _configClient.getDocumentFolderId(doc.id);
-      if (!folderResult.isSuccess || folderResult.data == null) {
-        throw 'Folder ID not found for ${doc.title}';
+      final folderId = doc.driveFolderId;
+      if (folderId == null || folderId.isEmpty) {
+        final errorMsg = 'Drive Folder ID not provided for ${doc.name}';
+        SnackbarService.showSnackBar(errorMsg);
+        throw errorMsg;
       }
 
       // Step 3: Upload to Google Drive
       doc.uploadStatus = UploadStatus.UPLOADING;
       notifyListeners();
+
       final now = DateTime.now();
       final prevMonth = DateTime(now.year, now.month - 1, 1);
+      final ext = (doc.path != null && doc.path!.contains('.'))
+          ? doc.path!.substring(doc.path!.lastIndexOf('.')).toLowerCase()
+          : '.pdf';
+      final fileName =
+          '${prevMonth.year}-${prevMonth.month.toString().padLeft(2, '0')}$ext';
+
       final uploadResult = await _workspaceClient.uploadDocumentToDrive(
         path: doc.path!,
-        fileName:
-            '${prevMonth.year}-${prevMonth.month.toString().padLeft(2, '0')}.pdf',
-        folderId: folderResult.data!,
+        fileName: fileName,
+        folderId: folderId,
       );
+      if (_isDisposed) return;
 
-      if (uploadResult.isSuccess) {
-        doc.uploadedFileId = uploadResult.data;
+      if (uploadResult.isSuccess && uploadResult.data != null) {
         doc.uploadStatus = UploadStatus.SUCCESS;
       } else {
         throw uploadResult.errorMessage ?? 'Upload failed';
       }
     } catch (e) {
+      if (_isDisposed) return;
       doc.uploadStatus = UploadStatus.FAILURE;
-      errors.add('${doc.title}: $e');
+      errors.add('${doc.name}: $e');
+      SnackbarService.showSnackBar('Upload failed for ${doc.name}: $e');
     }
     notifyListeners();
   }
 
-  /// Handles zip extraction and PDF decryption.
   Future<void> _handleDecryption(UploadDocument doc) async {
-    final path = doc.path!;
+    final path = doc.path;
+    if (path == null) return;
+
+    final password = doc.filePassword;
 
     if (path.toLowerCase().endsWith('.zip')) {
       try {
-        // Try extracting without password first
         doc.path = await PdfService.extractPdfFromZip(path);
       } catch (_) {
-        // Needs password — fetch from server
-        final pwResult = await _configClient.getDocumentPassword(doc.id);
-        if (!pwResult.isSuccess || pwResult.data == null) {
-          throw 'Password not found for zip';
+        if (password != null && password.isNotEmpty) {
+          doc.path = await PdfService.extractPdfFromZip(path, password: password);
+        } else {
+          rethrow;
         }
-        doc.path =
-            await PdfService.extractPdfFromZip(path, password: pwResult.data!);
       }
     } else if (path.toLowerCase().endsWith('.pdf') &&
         await PdfService.isPdfEncrypted(path)) {
-      final pwResult = await _configClient.getDocumentPassword(doc.id);
-      if (!pwResult.isSuccess || pwResult.data == null) {
-        throw 'Password not found';
+      if (password != null && password.isNotEmpty) {
+        doc.path = await PdfService.getDecryptedPdf(path, password);
+      } else {
+        final errorMsg = 'Password required for encrypted PDF: ${doc.name}';
+        SnackbarService.showSnackBar(errorMsg);
+        throw errorMsg;
       }
-      doc.path = await PdfService.getDecryptedPdf(path, pwResult.data!);
     }
   }
 
   @override
   void dispose() {
+    _isDisposed = true;
     PdfService.cleanupTempFiles();
     super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (_isDisposed) return;
+    super.notifyListeners();
   }
 }

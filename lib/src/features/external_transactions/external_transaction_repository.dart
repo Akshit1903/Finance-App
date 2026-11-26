@@ -33,18 +33,18 @@ class ExternalTransactionRepository {
   }
 
   Future<List<Transaction>> fetchFromApi() async {
-    return await _homeServerClient.fetchPrefilledExternalTransactions();
+    final fetched = await _homeServerClient.getExternalTransactions();
+    await saveToPrefs(fetched);
+    return fetched;
   }
 
   Future<void> initializeIfEmpty() async {
     final List<Transaction> existing = loadFromPrefs();
     if (existing.isEmpty) {
       try {
-        final List<Transaction> fetched = await fetchFromApi();
-        await saveToPrefs(fetched);
+        await fetchFromApi();
       } catch (e) {
-        // Log or handle error, but don't crash app startup
-        print('Error during initial external transactions fetch: $e');
+        // Don't crash app startup on network failure
       }
     }
   }

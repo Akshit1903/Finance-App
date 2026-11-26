@@ -1,74 +1,188 @@
-import 'package:expense_and_net_worth_automation/src/clients/eanw_apps_scripts_client.dart';
+import 'package:expense_and_net_worth_automation/src/clients/home_server_client.dart';
 import 'package:expense_and_net_worth_automation/src/config/dependency_injection.dart';
+import 'package:expense_and_net_worth_automation/src/features/external_transactions/external_transaction_repository.dart';
 import 'package:expense_and_net_worth_automation/src/models/eanw_details.dart';
 import 'package:expense_and_net_worth_automation/src/models/journey.dart';
 import 'package:expense_and_net_worth_automation/src/models/validation.dart';
-import 'package:expense_and_net_worth_automation/src/services/prefs_service.dart';
 import 'package:flutter/material.dart';
 
 /// ViewModel for the EANW Script journey step.
-///
-/// Extracts validation response, working/main EANW upload status
-/// from the step context. Manages working EANW details fetching.
 class EanwScriptViewModel extends ChangeNotifier {
-  final EanwAppsScriptsClient _eanwClient = getIt<EanwAppsScriptsClient>();
-  final PrefsService _prefsService = getIt<PrefsService>();
+  final HomeServerClient _homeServerClient = getIt<HomeServerClient>();
+  final ExternalTransactionRepository _externalTxnRepository =
+      getIt<ExternalTransactionRepository>();
 
-  /// Parsed from step context.
+  bool _isDisposed = false;
+  bool get isDisposed => _isDisposed;
+
+  WorkingEanwResponse? workingEanwResponse;
   ValidationResponse? validationResponse;
-  bool workingEANWUploaded = false;
-  bool mainEANWUploaded = false;
 
-  /// Fetched on demand when user taps "View Working EANW".
-  EanwDetails? workingEanwDetails;
-  bool isLoadingWorkingDetails = false;
-  String? workingDetailsError;
+  bool isLoadingWorking = false;
+  bool isCreatingEanw = false;
+  bool isDeletingWorkingEanw = false;
+  bool isEvaluatingEanw = false;
+  bool isLoadingValidations = false;
+  bool isCommitting = false;
 
-  EanwScriptViewModel({required JourneyStep step}) {
-    updateStep(step);
+  String? error;
+  Future<void>? initFuture;
+
+  EanwScriptViewModel({JourneyStep? step}) {
+    initFuture = fetchWorkingEanw();
   }
 
-  void updateStep(JourneyStep step) {
-    validationResponse = _parseValidationResponse(step.context);
-    workingEANWUploaded = step.context['workingEANWUploaded'] as bool? ?? false;
-    mainEANWUploaded = step.context['mainEANWUploaded'] as bool? ?? false;
-    notifyListeners();
-  }
+  bool get hasWorkingSheet =>
+      workingEanwResponse?.hasWorkingSheet ?? false;
 
-  /// Parses the validationResponse from the step context map.
-  static ValidationResponse? _parseValidationResponse(
-      Map<String, dynamic> context) {
-    final vrJson = context['validationResponse'] as Map<String, dynamic>?;
-    if (vrJson == null) return null;
-    return ValidationResponse.fromJson(vrJson);
-  }
+  bool get allValidationsPassed =>
+      validationResponse?.isSuccess ?? false;
 
-  /// Whether all validations passed (submit button enablement).
-  bool get allValidationsPassed => validationResponse?.isSuccess ?? false;
+  bool get canCommit =>
+      allValidationsPassed &&
+      !isCommitting &&
+      !isEvaluatingEanw &&
+      !isLoadingValidations;
 
-  /// Fetches the working EANW financial details.
-  Future<void> fetchWorkingEANWDetails() async {
-    isLoadingWorkingDetails = true;
-    workingDetailsError = null;
+  /// Fetches working EANW sheet details.
+  Future<void> fetchWorkingEanw() async {
+    isLoadingWorking = true;
+    error = null;
     notifyListeners();
 
     try {
-      final workingEANWSheetsId = _prefsService.getWorkingEANWSheetsId() ?? '';
-      if (workingEANWSheetsId.isEmpty) {
-        throw Exception('Spreadsheet ID not found in preferences.');
-      }
-      final result =
-          await _eanwClient.getWorkingEANWDetails(workingEANWSheetsId);
-      if (result.isSuccess && result.data != null) {
-        workingEanwDetails = EanwDetails.fromJson(result.data!);
-      } else {
-        workingDetailsError = result.errorMessage ?? 'Failed to load details';
+      workingEanwResponse = await _homeServerClient.getWorkingEanw();
+      if (workingEanwResponse?.hasWorkingSheet == true) {
+        // Automatically load validations for the uploaded sheet
+        await fetchValidations();
       }
     } catch (e) {
-      workingDetailsError = e.toString();
+      error = e.toString();
     } finally {
-      isLoadingWorkingDetails = false;
+      isLoadingWorking = false;
       notifyListeners();
     }
+  }
+
+  /// Automatically uploads CSV, evaluates EANW, and fetches validations in series:
+  /// 1. Upload (createEanw)
+  /// 2. Evaluate (evaluateEanw)
+  /// 3. Get validations (fetchValidations)
+  Future<void> createEanwFromCsv(String csvFilePath) async {
+    isCreatingEanw = true;
+    error = null;
+    notifyListeners();
+
+    try {
+      // 1. Upload CSV to create working EANW sheet
+      await _homeServerClient.createEanw(csvFilePath);
+      workingEanwResponse = await _homeServerClient.getWorkingEanw();
+    } catch (e) {
+      error = e.toString();
+      rethrow;
+    } finally {
+      isCreatingEanw = false;
+      notifyListeners();
+    }
+
+    try {
+      await _externalTxnRepository.fetchFromApi();
+    } catch (_) {
+      // Fallback to local cache if offline
+    }
+
+    // 2. Evaluate & 3. Get validations (in series)
+    await evaluateEanw();
+  }
+
+  /// Deletes the working EANW sheet.
+  Future<void> deleteWorkingEanw() async {
+    isDeletingWorkingEanw = true;
+    error = null;
+    notifyListeners();
+
+    try {
+      await _homeServerClient.deleteWorkingEanw();
+      validationResponse = null;
+      await fetchWorkingEanw();
+    } catch (e) {
+      error = e.toString();
+      rethrow;
+    } finally {
+      isDeletingWorkingEanw = false;
+      notifyListeners();
+    }
+  }
+
+  /// Calls PATCH finance/scripts/eanw/evaluations and then fetches validations in series.
+  Future<void> evaluateEanw() async {
+    isEvaluatingEanw = true;
+    error = null;
+    notifyListeners();
+
+    try {
+      final transactions = _externalTxnRepository.loadFromPrefs();
+      await _homeServerClient.evaluateEanw(transactions);
+      await fetchValidations();
+      workingEanwResponse = await _homeServerClient.getWorkingEanw();
+    } catch (e) {
+      error = e.toString();
+      rethrow;
+    } finally {
+      isEvaluatingEanw = false;
+      notifyListeners();
+    }
+  }
+
+  /// Fetches validation items from GET finance/validations.
+  Future<void> fetchValidations() async {
+    isLoadingValidations = true;
+    error = null;
+    notifyListeners();
+
+    try {
+      final list = await _homeServerClient.getValidations();
+      validationResponse = ValidationResponse(validations: list);
+    } catch (e) {
+      error = e.toString();
+    } finally {
+      isLoadingValidations = false;
+      notifyListeners();
+    }
+  }
+
+  /// Commits EANW via POST finance/scripts/eanw/commits.
+  Future<void> commitEanw(VoidCallback onComplete) async {
+    if (!canCommit) return;
+
+    isCommitting = true;
+    error = null;
+    notifyListeners();
+
+    try {
+      await _homeServerClient.commitEanw();
+      await _externalTxnRepository.clear();
+      onComplete();
+    } catch (e) {
+      error = e.toString();
+      rethrow;
+    } finally {
+      if (!_isDisposed) {
+        isCommitting = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (_isDisposed) return;
+    super.notifyListeners();
   }
 }

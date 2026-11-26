@@ -1,6 +1,7 @@
 {
   "git.ignoreLimitWarning": true,
   "java.configuration.updateBuildConfiguration": "automatic",
+  "java.import.gradle.enabled": false,
   "cmake.sourceDirectory": "C:/Users/akshi/Desktop/Development/Flutter/Projects/gym_stats_entry/gym_stats_entry_client/linux",
 
   // --- Flutter & Dart Efficiency Settings ---

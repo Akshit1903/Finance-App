@@ -7,6 +7,9 @@ class ExternalTransactionsViewModel extends ChangeNotifier {
   final ExternalTransactionRepository _repository =
       getIt<ExternalTransactionRepository>();
 
+  bool _isDisposed = false;
+  bool get isDisposed => _isDisposed;
+
   List<Transaction> _transactions = [];
   bool _isLoading = false;
   String? _error;
@@ -59,27 +62,35 @@ class ExternalTransactionsViewModel extends ChangeNotifier {
 
     try {
       final fetched = await _repository.fetchFromApi();
-      await _repository.saveToPrefs(fetched);
       _transactions = fetched;
     } catch (e) {
       _error = e.toString();
+      rethrow;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> clearTransactions() async {
-    _transactions.clear();
-    await _repository.clear();
-    notifyListeners();
-  }
-
   Color getTransactionColor(Transaction tx) {
     if (tx.expense) {
-      return tx.drcr == 'CR' ? Colors.green : Colors.red;
+      return Colors.red;
+    } else if (tx.income) {
+      return Colors.green;
     } else {
-      return Colors.grey;
+      return tx.drcr == 'CR' ? Colors.green : Colors.red;
     }
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (_isDisposed) return;
+    super.notifyListeners();
   }
 }

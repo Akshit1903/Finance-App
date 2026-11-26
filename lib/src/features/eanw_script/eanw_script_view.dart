@@ -1,17 +1,11 @@
-import 'package:expense_and_net_worth_automation/src/config/dependency_injection.dart';
-import 'package:expense_and_net_worth_automation/src/features/eanw_script/automation_trigger_viewmodel.dart';
 import 'package:expense_and_net_worth_automation/src/features/eanw_script/eanw_script_viewmodel.dart';
-import 'package:expense_and_net_worth_automation/src/features/eanw_script/widgets/automation_trigger_card.dart';
-import 'package:expense_and_net_worth_automation/src/features/eanw_script/widgets/eanw_details_view.dart';
+import 'package:expense_and_net_worth_automation/src/features/eanw_script/widgets/shimmer_validation_card.dart';
 import 'package:expense_and_net_worth_automation/src/features/eanw_script/widgets/submit_section.dart';
 import 'package:expense_and_net_worth_automation/src/features/eanw_script/widgets/validation_section.dart';
-import 'package:expense_and_net_worth_automation/src/features/external_transactions/external_transaction_repository.dart';
+import 'package:expense_and_net_worth_automation/src/features/eanw_script/widgets/working_eanw_card.dart';
 import 'package:expense_and_net_worth_automation/src/features/external_transactions/external_transactions_page.dart';
 import 'package:expense_and_net_worth_automation/src/models/journey.dart';
-import 'package:expense_and_net_worth_automation/src/providers/journey_provider.dart';
-import 'package:expense_and_net_worth_automation/src/utils/snackbar_service.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 /// Main view for the EANW Script journey step.
 class EanwScriptView extends StatefulWidget {
@@ -29,34 +23,17 @@ class EanwScriptView extends StatefulWidget {
 }
 
 class _EanwScriptViewState extends State<EanwScriptView> {
-  final ExternalTransactionRepository _externalTxnRepository =
-      getIt<ExternalTransactionRepository>();
   late final EanwScriptViewModel _viewModel;
-  late final AutomationTriggerViewModel _triggerViewModel;
 
   @override
   void initState() {
     super.initState();
     _viewModel = EanwScriptViewModel(step: widget.step);
-    _triggerViewModel = AutomationTriggerViewModel(
-      onComplete: () {
-        context.read<JourneyProvider>().fetchJourney();
-      },
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant EanwScriptView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.step != oldWidget.step) {
-      _viewModel.updateStep(widget.step);
-    }
   }
 
   @override
   void dispose() {
     _viewModel.dispose();
-    _triggerViewModel.dispose();
     super.dispose();
   }
 
@@ -64,10 +41,7 @@ class _EanwScriptViewState extends State<EanwScriptView> {
   Widget build(BuildContext context) {
     final body = ListenableBuilder(
       listenable: _viewModel,
-      builder: (context, _) => ListenableBuilder(
-        listenable: _triggerViewModel,
-        builder: (context, _) => _buildBody(context),
-      ),
+      builder: (context, _) => _buildBody(context),
     );
 
     if (widget.embedded) return body;
@@ -81,98 +55,98 @@ class _EanwScriptViewState extends State<EanwScriptView> {
     final theme = Theme.of(context);
     final vr = _viewModel.validationResponse;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Error banner for fetching working details
-          if (_viewModel.workingDetailsError != null)
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: MaterialBanner(
-                  backgroundColor: theme.colorScheme.errorContainer,
-                  elevation: 0,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  content: Text(
-                    _viewModel.workingDetailsError!,
-                    style: TextStyle(color: theme.colorScheme.onErrorContainer),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => _viewModel.fetchWorkingEANWDetails(),
-                      child: Text(
-                        'Retry',
-                        style: TextStyle(
-                            color: theme.colorScheme.error,
-                            fontWeight: FontWeight.bold),
-                      ),
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _viewModel.fetchWorkingEanw();
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Error banner
+            if (_viewModel.error != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: MaterialBanner(
+                    backgroundColor: theme.colorScheme.errorContainer,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    content: Text(
+                      _viewModel.error!,
+                      style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer),
                     ),
-                  ],
+                    actions: [
+                      TextButton(
+                        onPressed: _viewModel.fetchWorkingEanw,
+                        child: Text(
+                          'Retry',
+                          style: TextStyle(
+                            color: theme.colorScheme.error,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
 
-          // 1. Validation status banner
-          if (vr != null) _buildValidationBanner(theme, vr.isSuccess),
+            // 1. Working EANW Card (CSV upload / Sheets link / Delete / View breakdown)
+            WorkingEanwCard(viewModel: _viewModel),
 
-          // 2. Failed validations (open by default)
-          if (vr != null && vr.failedValidations.isNotEmpty)
-            ValidationSection(
-              title: 'Failed Validations',
-              validations: vr.failedValidations,
-              initiallyExpanded: true,
-            ),
+            const SizedBox(height: 12),
 
-          // 3. Passed validations (closed by default)
-          if (vr != null && vr.passedValidations.isNotEmpty)
-            ValidationSection(
-              title: 'Passed Validations',
-              validations: vr.passedValidations,
-              initiallyExpanded: false,
-            ),
+            // 2. Manage External Transactions button
+            _buildManageExternalTransactionsButton(context),
 
-          const SizedBox(height: 8),
+            const SizedBox(height: 12),
 
-          // 4. Manage External Transactions button
-          _buildManageExternalTransactionsButton(context),
+            // 3. Validation banner & section
+            if (_viewModel.isLoadingValidations) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Loading Validations...',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const ShimmerValidationCard(),
+              const ShimmerValidationCard(),
+              const ShimmerValidationCard(),
+            ] else if (vr != null) ...[
+              _buildValidationBanner(theme, vr.isSuccess),
+              if (vr.failedValidations.isNotEmpty)
+                ValidationSection(
+                  title: 'Failed Validations',
+                  validations: vr.failedValidations,
+                  initiallyExpanded: true,
+                ),
+              if (vr.passedValidations.isNotEmpty)
+                ValidationSection(
+                  title: 'Passed Validations',
+                  validations: vr.passedValidations,
+                  initiallyExpanded: false,
+                ),
+            ],
 
-          const SizedBox(height: 8),
+            const SizedBox(height: 12),
 
-          // 5. Automation Trigger card (highlighted when working EANW not uploaded)
-          AutomationTriggerCard(
-            viewModel: _triggerViewModel,
-            highlight: !_viewModel.workingEANWUploaded,
-          ),
-
-          const SizedBox(height: 8),
-
-          // 6. View Working EANW button
-          if (_viewModel.workingEANWUploaded) _buildWorkingEanwButton(context),
-
-          const SizedBox(height: 4),
-
-          // 7. Submit section
-          SubmitSection(
-            isEnabled: _viewModel.allValidationsPassed,
-            onSubmitComplete: () {
-              context.read<JourneyProvider>().fetchJourney();
-              _externalTxnRepository.clear();
-              if (mounted) {
-                SnackbarService.showSnackBar(
-                    'Successfully submitted!', context);
-              }
-            },
-          ),
-        ],
+            // 4. Submit & Commit section
+            SubmitSection(viewModel: _viewModel),
+          ],
+        ),
       ),
     );
   }
 
-  /// Green/red banner showing overall validation status.
   Widget _buildValidationBanner(ThemeData theme, bool isSuccess) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -193,14 +167,14 @@ class _EanwScriptViewState extends State<EanwScriptView> {
           Icon(
             isSuccess ? Icons.check_circle : Icons.error,
             color: isSuccess ? Colors.green : Colors.red,
-            size: 28,
+            size: 26,
           ),
           const SizedBox(width: 12),
           Text(
             isSuccess ? 'All validations passed' : 'Some validations failed',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w600,
-              color: isSuccess ? Colors.green : Colors.red,
+              color: isSuccess ? Colors.green.shade800 : Colors.red.shade800,
             ),
           ),
         ],
@@ -208,54 +182,21 @@ class _EanwScriptViewState extends State<EanwScriptView> {
     );
   }
 
-  /// Button to view working EANW details — fetches on tap.
-  Widget _buildWorkingEanwButton(BuildContext context) {
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        leading: const Icon(Icons.description, color: Colors.blue),
-        title: const Text('View Working EANW'),
-        subtitle: const Text('Tap to see financial breakdown'),
-        trailing: _viewModel.isLoadingWorkingDetails
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.chevron_right),
-        onTap: _viewModel.isLoadingWorkingDetails
-            ? null
-            : () async {
-                await _viewModel.fetchWorkingEANWDetails();
-                if (_viewModel.workingEanwDetails != null && mounted) {
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => EanwDetailsView(
-                      title: 'Working EANW',
-                      details: _viewModel.workingEanwDetails!,
-                    ),
-                  ));
-                } else if (_viewModel.workingDetailsError != null && mounted) {
-                  SnackbarService.showSnackBar(
-                      _viewModel.workingDetailsError!, context);
-                }
-              },
-      ),
-    );
-  }
-
-  /// Button to manage external transactions.
   Widget _buildManageExternalTransactionsButton(BuildContext context) {
     return Card(
       elevation: 0,
-      margin: const EdgeInsets.symmetric(vertical: 4),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
+      ),
       child: ListTile(
         leading: const Icon(Icons.swap_horiz, color: Colors.deepPurple),
         title: const Text('Manage External Transactions'),
-        subtitle: const Text('Non-axio transactions'),
+        subtitle: const Text('Review or modify external entries'),
         trailing: const Icon(Icons.chevron_right),
         onTap: () {
-          FocusScope.of(context).unfocus();
           Navigator.of(context).pushNamed(ExternalTransactionsPage.routeName);
         },
       ),

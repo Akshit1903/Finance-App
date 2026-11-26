@@ -2,6 +2,7 @@ import 'package:expense_and_net_worth_automation/src/home/unprocessed_transactio
 import 'package:expense_and_net_worth_automation/src/providers/auth_provider.dart';
 import 'package:expense_and_net_worth_automation/src/settings/settings_view.dart';
 import 'package:expense_and_net_worth_automation/src/features/external_transactions/external_transactions_page.dart';
+import 'package:expense_and_net_worth_automation/src/utils/snackbar_service.dart';
 import 'package:expense_and_net_worth_automation/src/views/auth_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +25,7 @@ class MyApp extends StatelessWidget {
       listenable: settingsController,
       builder: (BuildContext context, Widget? child) {
         return MaterialApp(
+          scaffoldMessengerKey: SnackbarService.scaffoldMessengerKey,
           restorationScopeId: 'app',
           supportedLocales: const [
             Locale('en', ''),
