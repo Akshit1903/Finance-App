@@ -21,6 +21,14 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
+      - name: Configure Gradle Maven Mirror
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cp android/mirror.init.gradle ~/.gradle/init.d/mirror.init.gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:

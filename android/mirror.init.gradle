@@ -1,0 +1,39 @@
+allprojects {
+    buildscript {
+        repositories.all { ArtifactRepository repo ->
+            if (repo instanceof MavenArtifactRepository) {
+                def url = repo.url.toString()
+                if (url.contains("repo1.maven.org") || url.contains("repo.maven.apache.org")) {
+                    repo.url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
+                }
+            }
+        }
+    }
+    repositories.all { ArtifactRepository repo ->
+        if (repo instanceof MavenArtifactRepository) {
+            def url = repo.url.toString()
+            if (url.contains("repo1.maven.org") || url.contains("repo.maven.apache.org")) {
+                repo.url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
+            }
+        }
+    }
+}
+
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories.all { ArtifactRepository repo ->
+        if (repo instanceof MavenArtifactRepository) {
+            def url = repo.url.toString()
+            if (url.contains("repo1.maven.org") || url.contains("repo.maven.apache.org")) {
+                repo.url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
+            }
+        }
+    }
+    settings.dependencyResolutionManagement.repositories.all { ArtifactRepository repo ->
+        if (repo instanceof MavenArtifactRepository) {
+            def url = repo.url.toString()
+            if (url.contains("repo1.maven.org") || url.contains("repo.maven.apache.org")) {
+                repo.url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
+            }
+        }
+    }
+}
